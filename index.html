@@ -166,7 +166,7 @@ const THEMES = {
 };
 
 /* ---------- storage ---------- */
-const APP_VERSION = "14";
+const APP_VERSION = "15";
 const KEY = "fuellog-v1", KEY_API = "fuellog-apikey";
 const EMPTY = {foodLog:{},supps:[],suppLog:{},meds:[],weights:[],gym:[],activity:{},
   water:{},templates:[],rounds:[],routines:[],workouts:[],dishes:[],
@@ -575,7 +575,7 @@ const ui = {showCues:null, date:todayKey(), pending:null, busy:false, err:"", ma
   pendingPhoto:null, viewPhoto:null, dishSearch:"", showDishes:false,
   showRoundForm:false, editGoals:false, editSupp:null,
   active:null, wIn:{}, showHistory:false, editRoutine:null,
-  gymView:"routines", openGuide:null, guideFilter:""};
+  gymView:"routines", openGuide:null, guideFilter:"", showActHistory:false};
 
 /* ---------- render ---------- */
 function render(){
@@ -1161,20 +1161,48 @@ function viewBody(){
     const acts=data.activity||{};
     const dates=Object.keys(acts).sort();
     if(!dates.length) return "";
-    const last=dates[dates.length-1], a=acts[last];
-    const days=[...Array(14)].map((_,i)=>shiftDate(todayKey(),i-13));
+    const t=todayKey();
+    const today=acts[t];
+    const days=[...Array(14)].map((_,i)=>shiftDate(t,i-13));
     const steps=days.map(d=>(acts[d]&&acts[d].steps)||0);
     const hasSteps=steps.some(v=>v>0);
-    return `<div class="lbl">DAILY ACTIVITY — ${niceDate(last).toUpperCase()}</div>
-      <div class="grid3 mb12">
-        ${Object.keys(ACT_LABELS).filter(k=>a[k]!=null).map(k=>`
-          <div class="card p12">
-            <div class="lbl" style="margin-bottom:4px">${ACT_LABELS[k].toUpperCase()}</div>
-            <div class="mono" style="font-size:16px;font-weight:700">${fmtNum(a[k])}<span style="font-size:10px;color:var(--faint)">${ACT_UNITS[k]}</span></div>
-          </div>`).join("")}
-      </div>
-      ${hasSteps?`<div class="lbl">STEPS — 14 DAYS</div>
-        <div class="card p12 mb16">${barChart(steps,days.map(shortDay),10000,"var(--good)")}</div>`:""}`;
+    const past=dates.filter(d=>d!==t).sort().reverse();
+
+    const todayBlock = today
+      ? `<div class="lbl">TODAY'S ACTIVITY</div>
+         <div class="grid3 mb12">
+           ${Object.keys(ACT_LABELS).filter(k=>today[k]!=null).map(k=>`
+             <div class="card p12">
+               <div class="lbl" style="margin-bottom:4px">${ACT_LABELS[k].toUpperCase()}</div>
+               <div class="mono" style="font-size:16px;font-weight:700">${fmtNum(today[k])}<span style="font-size:10px;color:var(--faint)">${ACT_UNITS[k]}</span></div>
+             </div>`).join("")}
+         </div>`
+      : `<div class="lbl">TODAY'S ACTIVITY</div>
+         <div class="card p12 mb12" style="border-style:dashed">
+           <div style="font-size:13px;color:var(--faint);text-align:center">
+             Nothing imported today \u2014 use \u{1F5BC} Import screenshot above.
+             ${past.length?`<br><span class="mono" style="font-size:11px">Last import: ${niceDate(past[0])}</span>`:""}
+           </div></div>`;
+
+    const historyBlock = past.length
+      ? `<button id="btnActHistory" style="width:100%;background:none;border:0;color:var(--faint);
+           font-size:11px;letter-spacing:.1em;padding:4px 0 12px;font-family:ui-monospace,monospace">
+           ${ui.showActHistory?"\u2212":"+"} ACTIVITY HISTORY (${past.length} DAY${past.length===1?"":"S"})</button>
+         ${ui.showActHistory?past.slice(0,40).map(d=>{
+           const a=acts[d];
+           return `<div class="item"><div style="min-width:0">
+             <div style="font-size:13px">${niceDate(d)}</div>
+             <div class="mono" style="font-size:11px;color:var(--faint)">
+               ${[a.steps?fmtNum(a.steps)+" steps":"",a.distance?a.distance+" km":"",
+                  a.activeMins?a.activeMins+" min":"",a.activeKcal?a.activeKcal+" kcal":""]
+                 .filter(Boolean).join(" \u00B7 ")}</div></div>
+             <button class="x" data-delact="${d}">\u2715</button></div>`;}).join(""):""}`
+      : "";
+
+    return `${todayBlock}
+      ${hasSteps?`<div class="lbl">STEPS \u2014 14 DAYS</div>
+        <div class="card p12 mb12">${barChart(steps,days.map(shortDay),10000,"var(--good)")}</div>`:""}
+      ${historyBlock}`;
   })()}
 
   <div class="lbl">GOLF ROUNDS</div>
@@ -2334,6 +2362,12 @@ Daily activity screens show steps, active time in minutes, activity calories, to
     ov.innerHTML='<img src="'+url+'" style="max-width:100%;max-height:100%;border-radius:12px">';
     ov.onclick=()=>ov.remove();
     document.body.appendChild(ov);});
+
+  /* ---- activity history ---- */
+  on("#btnActHistory","click",()=>{ui.showActHistory=!ui.showActHistory; render();});
+  all("[data-delact]","click",e=>{
+    const d=e.currentTarget.dataset.delact;
+    delete data.activity[d]; save(); render(); toast("Removed "+niceDate(d));});
 
   /* ---- gym tab ---- */
   on("#btnGymLibrary","click",()=>{ui.gymView="library"; ui.openGuide=null; render();});
