@@ -166,7 +166,7 @@ const THEMES = {
 };
 
 /* ---------- storage ---------- */
-const APP_VERSION = "15";
+const APP_VERSION = "17";
 const KEY = "fuellog-v1", KEY_API = "fuellog-apikey";
 const EMPTY = {foodLog:{},supps:[],suppLog:{},meds:[],weights:[],gym:[],activity:{},
   water:{},templates:[],rounds:[],routines:[],workouts:[],dishes:[],
@@ -575,7 +575,7 @@ const ui = {showCues:null, date:todayKey(), pending:null, busy:false, err:"", ma
   pendingPhoto:null, viewPhoto:null, dishSearch:"", showDishes:false,
   showRoundForm:false, editGoals:false, editSupp:null,
   active:null, wIn:{}, showHistory:false, editRoutine:null,
-  gymView:"routines", openGuide:null, guideFilter:"", showActHistory:false};
+  gymView:"routines", openGuide:null, guideFilter:"", showActHistory:false, mealPhotos:true};
 
 /* ---------- render ---------- */
 function render(){
@@ -1726,6 +1726,14 @@ function reportCss(){
   .muted{color:#777}
   .sec{break-inside:avoid;page-break-inside:avoid}
   .pb{page-break-before:always}
+  .chart{border:1px solid #e6e6e6;border-radius:6px;padding:8px 10px;margin:6px 0 12px;background:#fff;
+    break-inside:avoid;page-break-inside:avoid}
+  .chart .ct{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#666;margin-bottom:4px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:9px;color:#555;margin-top:5px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .wheelrow{display:flex;gap:14px;align-items:center;margin:4px 0 10px}
+  .wheelrow .wl{flex:1;font-size:10px}
+  .wheelrow .wl div{margin-bottom:3px}
   footer{margin-top:22px;padding-top:7px;border-top:1px solid #ddd;font-size:9px;color:#888;
     display:flex;justify-content:space-between}
   .noprint{position:fixed;top:0;left:0;right:0;background:#111;color:#fff;padding:11px 14px;
@@ -1734,6 +1742,94 @@ function reportCss(){
     font-weight:700;font-size:13px;font-family:inherit}
   .pad{height:52px}
   @media print{ .noprint{display:none !important} .pad{display:none !important} }`;
+}
+
+
+/* ---------- print chart helpers (inline SVG, colour) ---------- */
+const RC={p:"#0ca678",c:"#1c7ed6",f:"#f59f00",ok:"#2f9e44",bad:"#e03131",
+  ink:"#111",mid:"#888",grid:"#e4e4e4",soft:"#f0f0f0",blue:"#1c7ed6",violet:"#7048e8"};
+
+function rDonut(parts,size,label,sub){
+  const total=parts.reduce((a,x)=>a+x.v,0)||1;
+  const r=size/2-13, cx=size/2, cy=size/2, C=2*Math.PI*r;
+  let off=0;
+  const rings=parts.map(x=>{
+    const frac=x.v/total, len=C*frac;
+    const el=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${x.col}" stroke-width="17"
+      stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}"
+      transform="rotate(-90 ${cx} ${cy})"/>`;
+    off+=len; return el;}).join("");
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${RC.soft}" stroke-width="17"/>
+    ${rings}
+    <text x="${cx}" y="${cy-1}" text-anchor="middle" font-size="15" font-weight="700" fill="${RC.ink}">${label||""}</text>
+    <text x="${cx}" y="${cy+12}" text-anchor="middle" font-size="8" fill="${RC.mid}">${sub||""}</text>
+  </svg>`;
+}
+
+function rBars(vals,labels,target,colorFn,h,unit){
+  const W=520,H=h||120,padL=30,padB=16,padT=8;
+  const max=Math.max(target||0,...vals,1)*1.15;
+  const bw=(W-padL-6)/vals.length;
+  const y=v=>H-padB-((v/max)*(H-padB-padT));
+  let out="";
+  // gridlines
+  [0,0.5,1].forEach(g=>{const gv=max*g;
+    out+=`<line x1="${padL}" y1="${y(gv)}" x2="${W}" y2="${y(gv)}" stroke="${RC.grid}" stroke-width="1"/>
+      <text x="${padL-4}" y="${y(gv)+3}" text-anchor="end" font-size="7" fill="${RC.mid}">${Math.round(gv)}</text>`;});
+  vals.forEach((v,i)=>{
+    const x=padL+i*bw+bw*0.16, w=bw*0.68;
+    if(v>0) out+=`<rect x="${x}" y="${y(v)}" width="${w}" height="${H-padB-y(v)}" rx="2"
+      fill="${colorFn?colorFn(v):RC.blue}"/>`;
+    if(labels[i]!=null && (vals.length<=16 || i%Math.ceil(vals.length/14)===0))
+      out+=`<text x="${padL+i*bw+bw/2}" y="${H-4}" text-anchor="middle" font-size="7" fill="${RC.mid}">${labels[i]}</text>`;
+  });
+  if(target) out+=`<line x1="${padL}" y1="${y(target)}" x2="${W}" y2="${y(target)}"
+    stroke="${RC.ink}" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="${W}" y="${y(target)-3}" text-anchor="end" font-size="7" fill="${RC.ink}">target ${target}${unit||""}</text>`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+}
+
+function rStack(rows,labels,h){
+  // rows: [{p,c,f}] in grams -> stacked calories
+  const W=520,H=h||110,padL=30,padB=16,padT=6;
+  const kcals=rows.map(r=>r.p*4+r.c*4+r.f*9);
+  const max=Math.max(...kcals,1)*1.15;
+  const bw=(W-padL-6)/rows.length;
+  const sc=v=>(v/max)*(H-padB-padT);
+  let out=`<line x1="${padL}" y1="${H-padB}" x2="${W}" y2="${H-padB}" stroke="${RC.grid}"/>`;
+  rows.forEach((r,i)=>{
+    const x=padL+i*bw+bw*0.16, w=bw*0.68;
+    let yb=H-padB;
+    [[r.p*4,RC.p],[r.c*4,RC.c],[r.f*9,RC.f]].forEach(([v,col])=>{
+      const hh=sc(v); if(hh>0.4){ yb-=hh; out+=`<rect x="${x}" y="${yb}" width="${w}" height="${hh}" fill="${col}"/>`; }
+    });
+    if(rows.length<=16 || i%Math.ceil(rows.length/14)===0)
+      out+=`<text x="${x+w/2}" y="${H-4}" text-anchor="middle" font-size="7" fill="${RC.mid}">${labels[i]}</text>`;
+  });
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+}
+
+function rLine(vals,labels,color,goal,h){
+  const W=520,H=h||120,padL=32,padB=16,padT=8;
+  const nums=vals.filter(v=>v!=null);
+  if(nums.length<2) return `<div class="muted" style="font-size:10px;padding:6px 0">Not enough data to chart.</div>`;
+  const lo=Math.min(...nums,goal||Infinity), hi=Math.max(...nums,goal||-Infinity);
+  const span=(hi-lo)||1, pad=span*0.15;
+  const Y=v=>H-padB-(((v-(lo-pad))/(span+pad*2))*(H-padB-padT));
+  const X=i=>padL+(i/(vals.length-1))*(W-padL-6);
+  let d="",dots="",first=true;
+  vals.forEach((v,i)=>{ if(v==null)return;
+    d+=(first?"M":"L")+X(i)+" "+Y(v)+" "; first=false;
+    dots+=`<circle cx="${X(i)}" cy="${Y(v)}" r="2.6" fill="${color}"/>`;});
+  let out=`<line x1="${padL}" y1="${H-padB}" x2="${W}" y2="${H-padB}" stroke="${RC.grid}"/>`;
+  [lo,hi].forEach(g=>{ out+=`<text x="${padL-4}" y="${Y(g)+3}" text-anchor="end" font-size="7" fill="${RC.mid}">${(+g).toFixed(1)}</text>`;});
+  if(goal!=null) out+=`<line x1="${padL}" y1="${Y(goal)}" x2="${W}" y2="${Y(goal)}" stroke="${RC.ok}"
+    stroke-width="1" stroke-dasharray="4 3"/><text x="${W}" y="${Y(goal)-3}" text-anchor="end" font-size="7" fill="${RC.ok}">goal ${goal}</text>`;
+  out+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>${dots}`;
+  labels.forEach((l,i)=>{ if(labels.length>10 && i%Math.ceil(labels.length/8)) return;
+    out+=`<text x="${X(i)}" y="${H-4}" text-anchor="middle" font-size="7" fill="${RC.mid}">${l}</text>`;});
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
 function buildReport(n){
@@ -1763,7 +1859,17 @@ function buildReport(n){
   const totalVol=workouts.reduce((a,w)=>a+workoutVolume(w).vol,0);
   const totalSets=workouts.reduce((a,w)=>a+workoutVolume(w).count,0);
 
+  // daily series across the whole window (for charts)
+  const dayKcal=days.map(d=>totals(data.foodLog[d]).kcal);
+  const dayMacros=days.map(d=>{const t2=totals(data.foodLog[d]); return {p:t2.protein,c:t2.carbs,f:t2.fat};});
+  const dayLabels=days.map(d=>{const[y,m,dd]=d.split("-").map(Number);return dd;});
+  const daySteps=days.map(d=>((data.activity||{})[d]||{}).steps||0);
   const stepDays=days.filter(d=>((data.activity||{})[d]||{}).steps);
+  const distDays=days.filter(d=>((data.activity||{})[d]||{}).distance);
+  const avgDist=distDays.length?distDays.reduce((a,d)=>a+data.activity[d].distance,0)/distDays.length:0;
+  const actMinDays=days.filter(d=>((data.activity||{})[d]||{}).activeMins);
+  const avgActive=actMinDays.length?Math.round(actMinDays.reduce((a,d)=>a+data.activity[d].activeMins,0)/actMinDays.length):0;
+  const otherSessions=(data.gym||[]).filter(x=>x.date>=from).slice(0,30);
   const avgSteps=stepDays.length?Math.round(stepDays.reduce((a,d)=>a+data.activity[d].steps,0)/stepDays.length):0;
   const waterDays=days.filter(d=>waterOf(d)>0);
   const avgWater=waterDays.length?Math.round(waterDays.reduce((a,d)=>a+waterOf(d),0)/waterDays.length):0;
@@ -1826,9 +1932,38 @@ function buildReport(n){
     <td class="n">${avgC?(avgC-g.carbs>0?"+":"")+(avgC-g.carbs)+" g":"\u2014"}</td></tr>
   <tr><td>Fat</td><td class="n">${avgF} g</td><td class="n">${g.fat} g</td>
     <td class="n">${avgF?(avgF-g.fat>0?"+":"")+(avgF-g.fat)+" g":"\u2014"}</td></tr>
-  ${avgK?`<tr class="tot"><td>Macro split</td><td class="n" colspan="3">
-    ${Math.round((avgP*4/avgK)*100)}% P \u00B7 ${Math.round((avgC*4/avgK)*100)}% C \u00B7 ${Math.round((avgF*9/avgK)*100)}% F</td></tr>`:""}
 </table>
+
+${avgK?`<div class="wheelrow">
+  ${rDonut([{v:avgP*4,col:RC.p},{v:avgC*4,col:RC.c},{v:avgF*9,col:RC.f}],108,
+    Math.round((avgP*4/avgK)*100)+"%","protein")}
+  <div class="wl">
+    <div><b>Average macro split</b></div>
+    <div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RC.p};margin-right:5px"></span>
+      Protein ${Math.round((avgP*4/avgK)*100)}% \u2014 ${avgP} g</div>
+    <div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RC.c};margin-right:5px"></span>
+      Carbohydrate ${Math.round((avgC*4/avgK)*100)}% \u2014 ${avgC} g</div>
+    <div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RC.f};margin-right:5px"></span>
+      Fat ${Math.round((avgF*9/avgK)*100)}% \u2014 ${avgF} g</div>
+    <div class="muted" style="margin-top:4px">Based on ${logged.length} logged day${logged.length===1?"":"s"}.</div>
+  </div>
+</div>
+
+<div class="chart">
+  <div class="ct">Daily calories vs target</div>
+  ${rBars(dayKcal,dayLabels,g.kcal,(v)=>Math.abs(v-g.kcal)<=g.kcal*0.1?RC.ok:(v>g.kcal?RC.bad:RC.blue),120," kcal")}
+  <div class="legend"><span><i style="background:${RC.ok}"></i>within 10% of target</span>
+    <span><i style="background:${RC.blue}"></i>under</span>
+    <span><i style="background:${RC.bad}"></i>over</span></div>
+</div>
+
+<div class="chart">
+  <div class="ct">Daily macro composition (calories from each macro)</div>
+  ${rStack(dayMacros,dayLabels,110)}
+  <div class="legend"><span><i style="background:${RC.p}"></i>protein</span>
+    <span><i style="background:${RC.c}"></i>carbs</span>
+    <span><i style="background:${RC.f}"></i>fat</span></div>
+</div>`:""}
 
 <div class="sec">
 <h3>Consistency</h3>
@@ -1840,10 +1975,11 @@ function buildReport(n){
 </table>
 </div>
 
-${(avgSteps||avgWater)?`<div class="sec"><h3>Daily activity &amp; hydration</h3>
-<table><tr><th>Metric</th><th class="n">Average</th><th class="n">Days recorded</th></tr>
-  ${avgSteps?`<tr><td>Steps</td><td class="n">${fmtNum(avgSteps)}</td><td class="n">${stepDays.length}</td></tr>`:""}
-  ${avgWater?`<tr><td>Water</td><td class="n">${(avgWater/1000).toFixed(2)} L</td><td class="n">${waterDays.length}</td></tr>`:""}
+${avgWater?`<div class="sec"><h3>Hydration</h3>
+<table><tr><th>Metric</th><th class="n">Daily average</th><th class="n">Goal</th><th class="n">Days recorded</th></tr>
+  <tr><td>Water</td><td class="n">${(avgWater/1000).toFixed(2)} L</td>
+    <td class="n">${(((data.goals&&data.goals.waterMl)||2500)/1000).toFixed(1)} L</td>
+    <td class="n">${waterDays.length}</td></tr>
 </table></div>`:""}
 
 ${ws.length?`<h2>Body composition</h2>
@@ -1859,6 +1995,16 @@ ${ws.length?`<h2>Body composition</h2>
     <td class="n">${(wStart.muscle!=null&&wEnd.muscle!=null)?((wEnd.muscle-wStart.muscle>0?"+":"")+ (+(wEnd.muscle-wStart.muscle).toFixed(1))+" kg"):"\u2014"}</td>
     <td class="n"></td><td class="n"></td></tr>`:""}
 </table>
+${ws.length>1?`<div class="chart">
+  <div class="ct">Weight trend</div>
+  ${rLine(ws.map(w=>w.kg),ws.map(w=>fdShort(w.date).replace(/^\\w+ /,"")),RC.blue,
+    (data.goals&&data.goals.weightKg)||null,120)}
+</div>`:""}
+${ws.filter(w=>w.fat!=null).length>1?`<div class="chart">
+  <div class="ct">Body fat %</div>
+  ${rLine(ws.filter(w=>w.fat!=null).map(w=>w.fat),
+    ws.filter(w=>w.fat!=null).map(w=>fdShort(w.date).replace(/^\\w+ /,"")),RC.f,null,100)}
+</div>`:""}
 ${(data.goals&&data.goals.weightKg&&wEnd)?`<div class="sub">Goal ${data.goals.weightKg} kg \u2014
   ${Math.abs(+(wEnd.kg-data.goals.weightKg).toFixed(1))} kg ${wEnd.kg>data.goals.weightKg?"to lose":"to gain"}.</div>`:""}`:""}
 
@@ -1868,6 +2014,12 @@ ${workouts.length?`<h2 class="pb">Training</h2>
   ${kpi("Total sets",totalSets,"")}
   ${kpi("Total volume",fmtNum(totalVol)+" kg","load \u00D7 reps")}
   ${kpi("Avg duration",Math.round(workouts.reduce((a,w)=>a+(w.durationMin||0),0)/workouts.length)+" min","")}
+</div>
+
+<div class="chart">
+  <div class="ct">Volume per session (kg lifted)</div>
+  ${rBars(workouts.slice().reverse().map(w=>workoutVolume(w).vol),
+    workouts.slice().reverse().map(w=>w.name.slice(0,4)),0,()=>RC.violet,110," kg")}
 </div>
 
 <h3>Exercise progression</h3>
@@ -1897,6 +2049,38 @@ ${workouts.map(w=>{
     </table>
     ${w.note?`<div class="note"><b>Notes:</b> ${esc(w.note)}</div>`:""}
   </div>`;}).join("")}`:""}
+
+${(avgSteps||otherSessions.length)?`<h2>Activity</h2>
+${avgSteps?`
+<div class="cards">
+  ${kpi("Avg steps",fmtNum(avgSteps),`over ${stepDays.length} recorded days`)}
+  ${kpi("Best day",fmtNum(Math.max(...daySteps)),"steps")}
+  ${kpi("Avg distance",avgDist?avgDist.toFixed(1)+" km":"\u2014","per recorded day")}
+  ${kpi("Avg active",avgActive?avgActive+" min":"\u2014","per recorded day")}
+</div>
+<div class="chart">
+  <div class="ct">Daily steps</div>
+  ${rBars(daySteps,dayLabels,10000,(v)=>v>=10000?RC.ok:RC.mid,110,"")}
+  <div class="legend"><span><i style="background:${RC.ok}"></i>10,000+ steps</span>
+    <span><i style="background:${RC.mid}"></i>below target</span></div>
+</div>
+<table>
+  <tr><th>Date</th><th class="n">Steps</th><th class="n">Distance</th><th class="n">Active</th>
+    <th class="n">Activity kcal</th><th class="n">Total burnt</th></tr>
+  ${stepDays.slice(-14).reverse().map(d=>{const a=data.activity[d];
+    return `<tr><td>${fdShort(d)}</td><td class="n">${a.steps?fmtNum(a.steps):"\u2014"}</td>
+    <td class="n">${a.distance?a.distance+" km":"\u2014"}</td>
+    <td class="n">${a.activeMins?a.activeMins+" min":"\u2014"}</td>
+    <td class="n">${a.activeKcal?fmtNum(a.activeKcal):"\u2014"}</td>
+    <td class="n">${a.burnt?fmtNum(a.burnt):"\u2014"}</td></tr>`;}).join("")}
+</table>`:""}
+
+${otherSessions.length?`<h3>Other sessions</h3>
+<table><tr><th>Date</th><th>Activity</th><th>Detail</th></tr>
+${otherSessions.map(x=>`<tr><td>${fdShort(x.date)}</td><td>${esc(x.type)}</td>
+  <td class="muted">${esc(x.note||"\u2014")}</td></tr>`).join("")}
+</table>`:""}
+`:""}
 
 ${(data.rounds||[]).filter(r=>r.date>=from).length?`<div class="sec"><h2>Golf</h2>
 <table><tr><th>Date</th><th>Course</th><th class="n">Score</th><th class="n">Putts</th>
@@ -1939,6 +2123,211 @@ function openReport(){
   }
   w.document.open(); w.document.write(html); w.document.close();
 }
+
+
+/* ---------- meal diary report ---------- */
+function thumbFromDataUrl(dataUrl,px){
+  return new Promise((res)=>{
+    try{
+      const img=new Image();
+      img.onload=()=>{
+        const scale=Math.min(1,px/Math.max(img.width,img.height));
+        const c=document.createElement("canvas");
+        c.width=Math.max(1,Math.round(img.width*scale));
+        c.height=Math.max(1,Math.round(img.height*scale));
+        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL("image/jpeg",0.55));
+      };
+      img.onerror=()=>res(null);
+      img.src=dataUrl;
+    }catch(e){ res(null); }
+  });
+}
+
+async function buildMealReport(n,withPhotos){
+  const days=[...Array(n)].map((_,i)=>shiftDate(todayKey(),i-(n-1))).filter(loggedDay).reverse();
+  const from=days.length?days[days.length-1]:todayKey(), to=days.length?days[0]:todayKey();
+  const g=data.targets;
+  const fd=k=>{const[y,m,d]=k.split("-").map(Number);
+    return new Date(y,m-1,d).toLocaleDateString("en-IE",{day:"numeric",month:"short",year:"numeric"});};
+  const fdLong=k=>{const[y,m,d]=k.split("-").map(Number);
+    return new Date(y,m-1,d).toLocaleDateString("en-IE",{weekday:"long",day:"numeric",month:"long"});};
+
+  // gather photo thumbnails
+  const thumbs={};
+  if(withPhotos){
+    const ids=[];
+    days.forEach(d=>(data.foodLog[d]||[]).forEach(e=>{ if(e.photo && !ids.includes(e.photo)) ids.push(e.photo); }));
+    for(const id of ids.slice(0,120)){
+      try{ const raw=await photoGet(id); if(raw){ const t=await thumbFromDataUrl(raw,150); if(t) thumbs[id]=t; } }catch(e){}
+    }
+  }
+
+  const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):0;
+  const allK=days.map(d=>totals(data.foodLog[d]).kcal);
+  const allP=days.map(d=>totals(data.foodLog[d]).protein);
+  const allC=days.map(d=>totals(data.foodLog[d]).carbs);
+  const allF=days.map(d=>totals(data.foodLog[d]).fat);
+
+  // meal-level averages across the period
+  const mealAvg=MEALS.map(([mid,mlabel,mic])=>{
+    const perDay=days.map(d=>totals((data.foodLog[d]||[]).filter(e=>mealOf(e)===mid)));
+    const withFood=perDay.filter(x=>x.kcal>0);
+    return {mid,mlabel,mic,days:withFood.length,
+      kcal:avg(withFood.map(x=>x.kcal)),protein:avg(withFood.map(x=>x.protein)),
+      carbs:avg(withFood.map(x=>x.carbs)),fat:avg(withFood.map(x=>x.fat)),
+      share:0};
+  });
+  const totalMealKcal=mealAvg.reduce((a,m)=>a+m.kcal*m.days,0)||1;
+  mealAvg.forEach(m=>{ m.share=Math.round((m.kcal*m.days/totalMealKcal)*100); });
+  const MEALCOL={breakfast:"#f59f00",lunch:"#1c7ed6",dinner:"#7048e8",snacks:"#0ca678"};
+
+  const dayBlock=(d)=>{
+    const entries=data.foodLog[d]||[];
+    const dt=totals(entries);
+    const pctK=Math.round((dt.kcal/g.kcal)*100);
+    return `<div class="day">
+      <div class="dh">
+        <div><span class="dd">${fdLong(d)}</span></div>
+        <div class="dm">
+          <span><b>${dt.kcal}</b> <span class="muted">/ ${g.kcal} kcal (${pctK}%)</span></span>
+          <span style="color:${RC.p}"><b>${dt.protein}g</b> P</span>
+          <span style="color:${RC.c}"><b>${dt.carbs}g</b> C</span>
+          <span style="color:${RC.f}"><b>${dt.fat}g</b> F</span>
+        </div>
+      </div>
+      <div class="dbody">
+        <div class="dwheel">${rDonut(
+          [{v:dt.protein*4,col:RC.p},{v:dt.carbs*4,col:RC.c},{v:dt.fat*9,col:RC.f}],78,
+          dt.kcal,"kcal")}</div>
+        <div style="flex:1;min-width:0">
+        ${MEALS.map(([mid,mlabel,mic])=>{
+          const list=entries.filter(e=>mealOf(e)===mid);
+          if(!list.length) return "";
+          const mt=totals(list);
+          return `<div class="meal">
+            <div class="mh"><span class="mn" style="border-left:3px solid ${MEALCOL[mid]}">${mlabel}</span>
+              <span class="ms">${mt.kcal} kcal \u00B7 ${mt.protein}P \u00B7 ${mt.carbs}C \u00B7 ${mt.fat}F</span></div>
+            <table class="mt">
+              ${list.map(e=>`<tr>
+                ${withPhotos&&thumbs[e.photo]?`<td class="ph"><img src="${thumbs[e.photo]}"></td>`:(withPhotos?`<td class="ph"></td>`:"")}
+                <td>${esc(e.name)}${e.fromSupp?` <span class="tag">supp</span>`:""}</td>
+                <td class="n">${e.kcal}</td><td class="n" style="color:${RC.p}">${e.protein}</td>
+                <td class="n" style="color:${RC.c}">${e.carbs}</td><td class="n" style="color:${RC.f}">${e.fat}</td>
+              </tr>`).join("")}
+            </table>
+          </div>`;}).join("")}
+        </div>
+      </div>
+    </div>`;
+  };
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fuel Log meal diary ${from} to ${to}</title><style>${reportCss()}
+  .day{border:1px solid #ddd;border-radius:7px;padding:10px 12px;margin-bottom:10px;
+    break-inside:avoid;page-break-inside:avoid}
+  .dh{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;
+    border-bottom:1.5px solid #111;padding-bottom:5px;margin-bottom:8px}
+  .dd{font-size:13px;font-weight:700}
+  .dm{display:flex;gap:12px;font-size:10.5px;font-variant-numeric:tabular-nums}
+  .dbody{display:flex;gap:12px;align-items:flex-start}
+  .dwheel{flex:0 0 auto;padding-top:2px}
+  .meal{margin-bottom:8px}
+  .mh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+  .mn{font-size:11px;font-weight:700;padding-left:6px}
+  .ms{font-size:9.5px;color:#666;font-variant-numeric:tabular-nums}
+  table.mt{width:100%;border-collapse:collapse;margin:0}
+  table.mt td{padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:10.5px}
+  table.mt td.n{text-align:right;font-variant-numeric:tabular-nums;width:34px}
+  table.mt td.ph{width:34px;padding:2px 4px 2px 0}
+  table.mt td.ph img{width:30px;height:30px;object-fit:cover;border-radius:4px;display:block}
+  .tag{font-size:8px;background:#eee;color:#555;border-radius:3px;padding:1px 4px;vertical-align:1px}
+  .mgrid{display:flex;gap:10px;margin:6px 0 12px}
+  .mcard{flex:1;border:1px solid #ddd;border-radius:6px;padding:8px 10px}
+  .mcard .t{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#666}
+  .mcard .v{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0 1px}
+  .mcard .s{font-size:9px;color:#777}
+</style></head><body>
+<div class="noprint"><span>Meal diary report</span>
+  <button onclick="window.print()">Save as PDF</button></div>
+<div class="pad"></div>
+
+<div class="head">
+  <div><h1>Meal Diary</h1>
+    <div class="sub">${fd(from)} \u2013 ${fd(to)} \u00B7 ${days.length} logged day${days.length===1?"":"s"}</div></div>
+  <div class="sub" style="text-align:right">Generated ${fd(todayKey())}<br>Fuel Log</div>
+</div>
+
+${!days.length?`<div class="sub" style="padding:20px 0">Nothing logged in this period.</div>`:`
+<h2>Period summary</h2>
+<div class="cards">
+  <div class="kpi"><div class="k">Avg calories</div><div class="v">${avg(allK)}</div><div class="s">target ${g.kcal}</div></div>
+  <div class="kpi"><div class="k">Avg protein</div><div class="v">${avg(allP)}g</div><div class="s">target ${g.protein}g</div></div>
+  <div class="kpi"><div class="k">Avg carbs</div><div class="v">${avg(allC)}g</div><div class="s">target ${g.carbs}g</div></div>
+  <div class="kpi"><div class="k">Avg fat</div><div class="v">${avg(allF)}g</div><div class="s">target ${g.fat}g</div></div>
+</div>
+
+<h3>By meal</h3>
+<div class="mgrid">
+  ${mealAvg.map(m=>`<div class="mcard" style="border-left:3px solid ${MEALCOL[m.mid]}">
+    <div class="t">${m.mlabel}</div>
+    <div class="v">${m.kcal||"\u2014"}<span style="font-size:9px;color:#777"> kcal avg</span></div>
+    <div class="s">${m.protein}P \u00B7 ${m.carbs}C \u00B7 ${m.fat}F</div>
+    <div class="s">${m.days} of ${days.length} days \u00B7 ${m.share}% of intake</div>
+  </div>`).join("")}
+</div>
+
+<div class="chart">
+  <div class="ct">Calories by meal, per day</div>
+  ${(()=>{
+    const W=520,H=130,padL=30,padB=16,padT=8;
+    const per=days.slice().reverse().map(d=>MEALS.map(([mid])=>totals((data.foodLog[d]||[]).filter(e=>mealOf(e)===mid)).kcal));
+    const tot=per.map(x=>x.reduce((a,b)=>a+b,0));
+    const max=Math.max(g.kcal,...tot,1)*1.12;
+    const bw=(W-padL-6)/per.length;
+    const sc=v=>(v/max)*(H-padB-padT);
+    let out=`<line x1="${padL}" y1="${H-padB}" x2="${W}" y2="${H-padB}" stroke="${RC.grid}"/>`;
+    out+=`<line x1="${padL}" y1="${H-padB-sc(g.kcal)}" x2="${W}" y2="${H-padB-sc(g.kcal)}"
+      stroke="#111" stroke-width="1" stroke-dasharray="4 3"/>`;
+    per.forEach((mv,i)=>{
+      const x=padL+i*bw+bw*0.16, w=bw*0.68; let yb=H-padB;
+      mv.forEach((v,mi)=>{ const hh=sc(v); if(hh>0.4){ yb-=hh;
+        out+=`<rect x="${x}" y="${yb}" width="${w}" height="${hh}" fill="${MEALCOL[MEALS[mi][0]]}"/>`; }});
+      if(per.length<=16 || i%Math.ceil(per.length/14)===0){
+        const dd=days.slice().reverse()[i].split("-")[2];
+        out+=`<text x="${x+w/2}" y="${H-4}" text-anchor="middle" font-size="7" fill="${RC.mid}">${+dd}</text>`;}
+    });
+    return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+  })()}
+  <div class="legend">${MEALS.map(([mid,ml])=>`<span><i style="background:${MEALCOL[mid]}"></i>${ml}</span>`).join("")}</div>
+</div>
+
+<h2 class="pb">Daily detail</h2>
+${days.map(dayBlock).join("")}`}
+
+<footer><span>Fuel Log \u00B7 self-reported food diary</span><span>${fd(from)} \u2013 ${fd(to)}</span></footer>
+</body></html>`;
+}
+
+async function openMealReport(withPhotos){
+  toast("Building meal report\u2026",2500);
+  let html;
+  try{ html=await buildMealReport(ui.statsRange,withPhotos); }
+  catch(e){ toast("Couldn't build the report"); return; }
+  const w=window.open("","_blank");
+  if(!w){
+    const f=document.createElement("iframe");
+    f.style.cssText="position:fixed;inset:0;width:100%;height:100%;border:0;z-index:9999;background:#fff";
+    document.body.appendChild(f);
+    f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
+    toast("Report opened \u2014 use your browser menu to print or save",4000);
+    return;
+  }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+async function openReportAsync(){ openReport(); }
 
 /* ----- STATS / REPORTS ----- */
 function viewStats(){
@@ -2030,19 +2419,26 @@ function viewStats(){
   </div>
   `}
 
-  <div class="lbl" style="margin-top:20px">EXPORT</div>
-  <button class="btn" id="btnReport" style="width:100%;margin-bottom:8px">
-    \U0001F4C4 Trainer report (PDF)</button>
-  <div style="font-size:11px;color:var(--faint);margin-bottom:14px">
-    Covers the ${n} days selected above \u2014 nutrition, body composition, every session and set,
-    exercise progression, golf and supplements. Opens ready to print; choose <b>Save as PDF</b>.
+  <div class="lbl" style="margin-top:20px">REPORTS</div>
+  <button class="btn" id="btnReport" style="width:100%;margin-bottom:6px">
+    \U0001F4C4 Training &amp; nutrition report</button>
+  <div style="font-size:11px;color:var(--faint);margin-bottom:12px">
+    The overview for a coach \u2014 macro wheel, calorie and step charts, body composition,
+    every session and set, exercise progression, activity and golf.
   </div>
-  <div class="row mb16">
-    <button class="btn2" id="btnCsvFood" style="flex:1">Food CSV</button>
-    <button class="btn2" id="btnCsvBody" style="flex:1">Body CSV</button>
+  <button class="btn" id="btnMealReport" style="width:100%;margin-bottom:6px">
+    \U0001F374 Meal diary report</button>
+  <div style="font-size:11px;color:var(--faint);margin-bottom:8px">
+    Day by day, every meal broken out with its own macros, plus a daily macro wheel
+    and a calories-by-meal chart.
   </div>
+  <label class="row center" style="gap:8px;font-size:12px;color:var(--dim);margin-bottom:14px;cursor:pointer">
+    <input type="checkbox" id="mealPhotos" ${ui.mealPhotos?"checked":""}
+      style="width:auto;flex:0 0 auto;margin:0"> Include meal photos
+  </label>
   <div style="font-size:11px;color:var(--faint);margin-bottom:24px">
-    CSVs open in Excel, Sheets or Numbers. Your full JSON backup is under \u21C5.
+    Both cover the ${n} days selected above and open ready to print \u2014 choose <b>Save as PDF</b>.
+    Your full data backup is under \u21C5.
   </div>`;
 }
 
@@ -2053,27 +2449,6 @@ function downloadText(name,text,mime){
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}
-function exportFoodCsv(){
-  const rows=[["date","meal","item","kcal","protein_g","carbs_g","fat_g","fibre_g","sugar_g","sat_fat_g","salt_g"]];
-  Object.keys(data.foodLog).sort().forEach(d=>{
-    (data.foodLog[d]||[]).forEach(e=>rows.push([d,mealOf(e),e.name,e.kcal,e.protein,e.carbs,e.fat,
-      e.fibre||"",e.sugar||"",e.satFat||"",e.salt||""]));
-  });
-  if(rows.length===1){ toast("No food logged yet"); return; }
-  downloadText(`fuellog-food-${todayKey()}.csv`, rows.map(r=>r.map(csvEscape).join(",")).join("\n"));
-  toast("Food CSV downloaded");
-}
-function exportBodyCsv(){
-  const dates=new Set([...data.weights.map(w=>w.date),...Object.keys(data.activity||{}),...Object.keys(data.water||{})]);
-  const rows=[["date","weight_kg","body_fat_pct","muscle_kg","water_pct","bmi","steps","active_mins","distance_km","active_kcal","water_ml"]];
-  [...dates].sort().forEach(d=>{
-    const w=data.weights.find(x=>x.date===d)||{}, a=(data.activity||{})[d]||{};
-    rows.push([d,w.kg,w.fat,w.muscle,w.water,w.bmi,a.steps,a.activeMins,a.distance,a.activeKcal,waterOf(d)||""]);
-  });
-  if(rows.length===1){ toast("No body data yet"); return; }
-  downloadText(`fuellog-body-${todayKey()}.csv`, rows.map(r=>r.map(csvEscape).join(",")).join("\n"));
-  toast("Body CSV downloaded");
 }
 
 /* ---------- event binding ---------- */
@@ -2463,8 +2838,8 @@ Daily activity screens show steps, active time in minutes, activity calories, to
   /* stats */
   all("[data-range]","click",e=>{ui.statsRange=+e.currentTarget.dataset.range; render();});
   on("#btnReport","click",openReport);
-  on("#btnCsvFood","click",exportFoodCsv);
-  on("#btnCsvBody","click",exportBodyCsv);
+  on("#btnMealReport","click",()=>openMealReport(!!ui.mealPhotos));
+  on("#mealPhotos","change",e=>{ui.mealPhotos=e.currentTarget.checked;});
 
   /* goals */
   on("#btnSetGoal","click",()=>{ui.editGoals=true; render();});

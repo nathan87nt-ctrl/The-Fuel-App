@@ -32,7 +32,9 @@ A self-contained app. No build step, no framework, no server code. Four files.
 
 **Train** — start a Push/Pull/Legs session or a freestyle one, log every set with weight and reps, see last session and personal best per exercise, and tap the info icon beside any exercise for form cues.
 
-**Trainer report** — a printable PDF covering the selected period: nutrition averages against targets, adherence, body composition, every session and set, exercise-by-exercise load progression, golf and supplements. Tap the button, choose Save as PDF, send it to your coach.
+**Two PDF reports** — a training & nutrition overview for a coach (macro wheel, colour charts, body composition, every session and set, exercise progression, activity, golf), and a meal diary showing each day broken out by meal with its own macros, daily macro wheel and optional meal photos. Both print straight to PDF.
+
+**Old trainer report** — a printable PDF covering the selected period: nutrition averages against targets, adherence, body composition, every session and set, exercise-by-exercise load progression, golf and supplements. Tap the button, choose Save as PDF, send it to your coach.
 
 **Stats** — 7/30/90-day averages, consistency breakdown, calories by day of week, streaks, and CSV export.
 
