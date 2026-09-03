@@ -166,10 +166,10 @@ const THEMES = {
 };
 
 /* ---------- storage ---------- */
-const APP_VERSION = "17";
+const APP_VERSION = "18";
 const KEY = "fuellog-v1", KEY_API = "fuellog-apikey";
 const EMPTY = {foodLog:{},supps:[],suppLog:{},meds:[],weights:[],gym:[],activity:{},
-  water:{},templates:[],rounds:[],routines:[],workouts:[],dishes:[],
+  water:{},templates:[],rounds:[],routines:[],workouts:[],exVideos:{},dishes:[],
   goals:{weightKg:null,waterMl:2500},
   targets:{kcal:2500,protein:160,carbs:250,fat:80,fibre:30,sugar:90,satFat:30,salt:6},
   theme:"site"};
@@ -575,7 +575,8 @@ const ui = {showCues:null, date:todayKey(), pending:null, busy:false, err:"", ma
   pendingPhoto:null, viewPhoto:null, dishSearch:"", showDishes:false,
   showRoundForm:false, editGoals:false, editSupp:null,
   active:null, wIn:{}, showHistory:false, editRoutine:null,
-  gymView:"routines", openGuide:null, guideFilter:"", showActHistory:false, mealPhotos:true};
+  gymView:"routines", openGuide:null, guideFilter:"", showActHistory:false, mealPhotos:true,
+  setVidFor:null};
 
 /* ---------- render ---------- */
 function render(){
@@ -1561,6 +1562,7 @@ function guideBlock(name,compact){
     ${g.c.map(c=>`<div style="font-size:12px;line-height:1.5;color:var(--dim);
       padding-left:14px;position:relative;margin-bottom:5px">
       <span style="position:absolute;left:0;color:var(--accent)">\u2022</span>${esc(c)}</div>`).join("")}
+    ${videoBlock(name)}
   </div>`;
 }
 
@@ -2124,6 +2126,52 @@ function openReport(){
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+
+
+/* ---------- exercise video links ---------- */
+function ytId(url){
+  if(!url) return null;
+  const m=String(url).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  return m?m[1]:null;
+}
+function videoFor(name){
+  const v=(data.exVideos||{})[name];
+  return v||null;
+}
+function searchUrl(name){
+  return "https://www.youtube.com/results?search_query="+
+    encodeURIComponent(name+" proper form technique how to");
+}
+function videoBlock(name){
+  const saved=videoFor(name);
+  const id=ytId(saved);
+  return `<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+    ${id?`<div style="position:relative;padding-bottom:56.25%;height:0;border-radius:10px;overflow:hidden;
+      background:#000;margin-bottom:8px">
+      <iframe src="https://www.youtube.com/embed/${id}" title="${esc(name)}" loading="lazy"
+        style="position:absolute;inset:0;width:100%;height:100%;border:0"
+        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen></iframe></div>`:""}
+    <div class="row" style="gap:6px">
+      <a href="${saved&&!id?esc(saved):searchUrl(name)}" target="_blank" rel="noopener"
+        class="btn2" style="flex:1;text-align:center;text-decoration:none;color:var(--accent);padding:9px 8px;font-size:12px">
+        \u25B6 ${saved&&!id?"Open saved link":"Find on YouTube"}</a>
+      <button class="btn2" data-setvid="${esc(name)}" style="padding:9px 12px;font-size:12px">
+        ${saved?"Change":"Save a video"}</button>
+      ${saved?`<button class="btn2" data-clearvid="${esc(name)}" style="padding:9px 12px;font-size:12px;color:var(--danger)">\u2715</button>`:""}
+    </div>
+    ${ui.setVidFor===name?`
+    <div style="margin-top:8px">
+      <input id="vidUrl" placeholder="Paste a YouTube link\u2026" value="${esc(saved||"")}"
+        style="margin-bottom:6px;font-size:13px">
+      <div class="row">
+        <button class="btn-good" data-savevid="${esc(name)}" style="flex:1">Save</button>
+        <button class="btn2" id="cancelVid">Cancel</button></div>
+      <div style="font-size:11px;color:var(--faint);margin-top:6px">
+        Paste any youtube.com or youtu.be link and it plays right here. Other links open in a new tab.</div>
+    </div>`:""}
+  </div>`;
+}
 
 /* ---------- meal diary report ---------- */
 function thumbFromDataUrl(dataUrl,px){
@@ -2743,6 +2791,24 @@ Daily activity screens show steps, active time in minutes, activity calories, to
   all("[data-delact]","click",e=>{
     const d=e.currentTarget.dataset.delact;
     delete data.activity[d]; save(); render(); toast("Removed "+niceDate(d));});
+
+  /* ---- exercise videos ---- */
+  all("[data-setvid]","click",e=>{
+    const n=e.currentTarget.dataset.setvid;
+    ui.setVidFor = ui.setVidFor===n ? null : n; render();});
+  on("#cancelVid","click",()=>{ui.setVidFor=null; render();});
+  all("[data-savevid]","click",e=>{
+    const n=e.currentTarget.dataset.savevid;
+    const el=document.getElementById("vidUrl");
+    const url=el?el.value.trim():"";
+    data.exVideos=data.exVideos||{};
+    if(url) data.exVideos[n]=url; else delete data.exVideos[n];
+    ui.setVidFor=null; save(); render();
+    toast(url?(ytId(url)?"Video saved \u2014 it'll play here":"Link saved"):"Link cleared");});
+  all("[data-clearvid]","click",e=>{
+    const n=e.currentTarget.dataset.clearvid;
+    if(data.exVideos) delete data.exVideos[n];
+    save(); render(); toast("Video removed");});
 
   /* ---- gym tab ---- */
   on("#btnGymLibrary","click",()=>{ui.gymView="library"; ui.openGuide=null; render();});
