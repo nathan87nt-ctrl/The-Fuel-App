@@ -166,7 +166,7 @@ const THEMES = {
 };
 
 /* ---------- storage ---------- */
-const APP_VERSION = "18";
+const APP_VERSION = "19";
 const KEY = "fuellog-v1", KEY_API = "fuellog-apikey";
 const EMPTY = {foodLog:{},supps:[],suppLog:{},meds:[],weights:[],gym:[],activity:{},
   water:{},templates:[],rounds:[],routines:[],workouts:[],exVideos:{},dishes:[],
@@ -1509,16 +1509,17 @@ function viewWorkout(){
     return `<div class="card p12" style="margin-bottom:10px">
       <div class="row center" style="justify-content:space-between;margin-bottom:2px">
         <span style="font-size:14px;font-weight:700;min-width:0">${ei+1}. ${esc(e.name)}
-          ${cuesFor(e.name)?`<button data-cues="${e.id}" style="background:none;border:0;color:var(--accent);
+          ${true?`<button data-cues="${e.id}" style="background:none;border:0;color:var(--accent);
             font-size:15px;padding:0 3px;cursor:pointer" title="How to do it">\u24D8</button>`:""}</span>
         <span class="mono" style="font-size:11px;color:var(--faint);flex:0 0 auto">
           ${done.length}/${e.sets} \u00D7 ${e.lo}\u2013${e.hi}</span></div>
-      ${ui.showCues===e.id&&cuesFor(e.name)?(()=>{const cu=cuesFor(e.name);
+      ${ui.showCues===e.id?(()=>{const cu=cuesFor(e.name)||{t:e.name,c:[]};
         return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;
           padding:10px 12px;margin:6px 0 8px">
           <div class="lbl" style="margin-bottom:6px;color:var(--accent)">${esc(cu.t).toUpperCase()}</div>
           ${cu.c.map(line=>`<div style="font-size:12.5px;line-height:1.5;color:var(--dim);
             padding-left:14px;text-indent:-14px;margin-bottom:5px">\u2022 ${esc(line)}</div>`).join("")}
+          ${videoBlock(e.name)}
         </div>`;})():""}
       ${last?`<div class="mono" style="font-size:11px;color:var(--faint);margin-bottom:2px">
         last (${niceDate(last.date).toLowerCase()}): ${esc(setsSummary(last.sets))}</div>`:""}
@@ -2142,23 +2143,46 @@ function searchUrl(name){
   return "https://www.youtube.com/results?search_query="+
     encodeURIComponent(name+" proper form technique how to");
 }
+function openVideoOverlay(name){
+  const url=videoFor(name); const id=ytId(url);
+  if(!id){ window.open(url||searchUrl(name),"_blank","noopener"); return; }
+  const old=document.getElementById("vidOverlay"); if(old) old.remove();
+  const ov=document.createElement("div");
+  ov.id="vidOverlay";
+  ov.style.cssText="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.92);display:flex;"+
+    "flex-direction:column;align-items:center;justify-content:center;padding:14px";
+  ov.innerHTML=
+    '<div style="width:100%;max-width:760px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#fff">'+
+        '<span style="font-size:14px;font-weight:700">'+esc(name)+'</span>'+
+        '<button id="vidClose" style="background:#fff;color:#000;border:0;border-radius:8px;'+
+          'padding:7px 14px;font-weight:700;font-size:13px">Close</button></div>'+
+      '<div style="position:relative;padding-bottom:56.25%;height:0;border-radius:12px;overflow:hidden;background:#000">'+
+        '<iframe src="https://www.youtube.com/embed/'+id+'?autoplay=1&rel=0" title="'+esc(name)+'" '+
+        'style="position:absolute;inset:0;width:100%;height:100%;border:0" '+
+        'allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>'+
+      '<div style="color:#bbb;font-size:11px;margin-top:10px;text-align:center">'+
+        'Your workout stays exactly where it was \u2014 close this to carry on logging.</div>'+
+    '</div>';
+  ov.addEventListener("click",(ev)=>{ if(ev.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+  const cb=document.getElementById("vidClose"); if(cb) cb.onclick=()=>ov.remove();
+}
+
 function videoBlock(name){
   const saved=videoFor(name);
   const id=ytId(saved);
   return `<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-    ${id?`<div style="position:relative;padding-bottom:56.25%;height:0;border-radius:10px;overflow:hidden;
-      background:#000;margin-bottom:8px">
-      <iframe src="https://www.youtube.com/embed/${id}" title="${esc(name)}" loading="lazy"
-        style="position:absolute;inset:0;width:100%;height:100%;border:0"
-        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen></iframe></div>`:""}
     <div class="row" style="gap:6px">
-      <a href="${saved&&!id?esc(saved):searchUrl(name)}" target="_blank" rel="noopener"
-        class="btn2" style="flex:1;text-align:center;text-decoration:none;color:var(--accent);padding:9px 8px;font-size:12px">
-        \u25B6 ${saved&&!id?"Open saved link":"Find on YouTube"}</a>
-      <button class="btn2" data-setvid="${esc(name)}" style="padding:9px 12px;font-size:12px">
-        ${saved?"Change":"Save a video"}</button>
-      ${saved?`<button class="btn2" data-clearvid="${esc(name)}" style="padding:9px 12px;font-size:12px;color:var(--danger)">\u2715</button>`:""}
+      ${id
+        ? `<button class="btn" data-playvid="${esc(name)}" style="flex:1;padding:10px 8px;font-size:13px">
+             \u25B6 Watch tutorial</button>`
+        : `<a href="${esc(saved||searchUrl(name))}" target="_blank" rel="noopener" class="btn2"
+             style="flex:1;text-align:center;text-decoration:none;color:var(--accent);padding:10px 8px;font-size:13px">
+             \u25B6 ${saved?"Open saved link":"Find on YouTube"}</a>`}
+      <button class="btn2" data-setvid="${esc(name)}" style="padding:10px 12px;font-size:12px">
+        ${saved?"Change":"Save"}</button>
+      ${saved?`<button class="btn2" data-clearvid="${esc(name)}" style="padding:10px 12px;font-size:12px;color:var(--danger)">\u2715</button>`:""}
     </div>
     ${ui.setVidFor===name?`
     <div style="margin-top:8px">
@@ -2168,7 +2192,7 @@ function videoBlock(name){
         <button class="btn-good" data-savevid="${esc(name)}" style="flex:1">Save</button>
         <button class="btn2" id="cancelVid">Cancel</button></div>
       <div style="font-size:11px;color:var(--faint);margin-top:6px">
-        Paste any youtube.com or youtu.be link and it plays right here. Other links open in a new tab.</div>
+        Any youtube.com or youtu.be link plays in the app. Other links open in a new tab.</div>
     </div>`:""}
   </div>`;
 }
@@ -2793,6 +2817,7 @@ Daily activity screens show steps, active time in minutes, activity calories, to
     delete data.activity[d]; save(); render(); toast("Removed "+niceDate(d));});
 
   /* ---- exercise videos ---- */
+  all("[data-playvid]","click",e=>{ openVideoOverlay(e.currentTarget.dataset.playvid); });
   all("[data-setvid]","click",e=>{
     const n=e.currentTarget.dataset.setvid;
     ui.setVidFor = ui.setVidFor===n ? null : n; render();});
